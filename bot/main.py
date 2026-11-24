@@ -14,6 +14,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from bot.config import Config, load_config
 from bot.db import Database
 from bot.handlers import admin_manage, admin_movies, admin_tools, common, user
+from bot.health import start_health_server
 from bot.middlewares.access import AccessMiddleware
 from bot.middlewares.user import UserMiddleware
 
@@ -48,6 +49,14 @@ def create_dispatcher(config: Config, db: Database) -> Dispatcher:
 
 async def run(config: Config) -> None:
     db = Database(config.db_path)
+    if config.required_channels:
+        added = db.seed_required_channels(config.required_channels)
+        db.set_subscription_enabled(True)
+        logger.info(
+            "REQUIRED_CHANNELS: добавлено %s, всего задано %s, подписка включена",
+            added,
+            len(config.required_channels),
+        )
     bot = Bot(
         token=config.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
@@ -58,10 +67,15 @@ async def run(config: Config) -> None:
         ", ".join(str(i) for i in sorted(config.admin_ids)) or "—",
         config.db_path,
     )
+    http_runner = None
+    if config.port is not None:
+        http_runner = await start_health_server(config.port)
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
     finally:
+        if http_runner is not None:
+            await http_runner.cleanup()
         await bot.session.close()
         db.close()
 

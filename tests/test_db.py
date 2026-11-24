@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from bot.config import RequiredChannel
 from bot.db import Database, AdminInfo
 
 
@@ -149,6 +150,37 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(stats["found"], 1)
         self.assertEqual(stats["total_views"], 1)
         self.assertEqual(self.db.all_user_ids(), [10])
+
+
+    def test_seed_required_channels_only_when_missing(self) -> None:
+        first = RequiredChannel(
+            chat_id="-1003834817665",
+            title="musordrop14886752",
+            url="https://t.me/musordrop14886752",
+        )
+        added = self.db.seed_required_channels([first])
+        self.assertEqual(added, 1)
+        self.assertEqual(len(self.db.list_channels()), 1)
+        # Повторный посев тот же chat_id не дублирует.
+        added = self.db.seed_required_channels(
+            [
+                first,
+                RequiredChannel(chat_id="-100111", title="other", url="https://t.me/other"),
+            ]
+        )
+        self.assertEqual(added, 1)
+        channels = self.db.list_channels()
+        self.assertEqual([c.chat_id for c in channels], ["-1003834817665", "-100111"])
+        self.assertEqual(channels[0].url, "https://t.me/musordrop14886752")
+
+    def test_seed_then_enable_subscription(self) -> None:
+        self.db.set_subscription_enabled(False)
+        self.assertFalse(self.db.subscription_required())
+        self.db.seed_required_channels(
+            [RequiredChannel(chat_id="-1001", title="demo", url="https://t.me/demo")]
+        )
+        self.db.set_subscription_enabled(True)
+        self.assertTrue(self.db.subscription_required())
 
     def test_channels_and_subscription_flag(self) -> None:
         self.assertTrue(self.db.subscription_enabled())

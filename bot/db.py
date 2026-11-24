@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from bot.config import RequiredChannel
+
 logger = logging.getLogger(__name__)
 
 
@@ -534,6 +536,21 @@ class Database:
 
     def set_subscription_enabled(self, enabled: bool) -> None:
         self.set_setting("subscription_enabled", "1" if enabled else "0")
+
+
+    def seed_required_channels(self, channels: Iterable[RequiredChannel]) -> int:
+        """Добавляет каналы из REQUIRED_CHANNELS, только если chat_id ещё нет в базе."""
+        added = 0
+        for channel in channels:
+            chat_id = (channel.chat_id or "").strip()
+            if not chat_id:
+                continue
+            if self.get_channel_by_chat_id(chat_id):
+                continue
+            self.add_channel(chat_id, title=channel.title, url=channel.url)
+            added += 1
+            logger.info("Добавлен канал из REQUIRED_CHANNELS: %s", chat_id)
+        return added
 
     def subscription_required(self) -> bool:
         """Проверять подписку, только если флаг включён и есть хотя бы один канал."""
