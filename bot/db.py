@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from bot.config import RequiredChannel
+from bot.seed import SeedMovie
 
 logger = logging.getLogger(__name__)
 
@@ -537,6 +538,25 @@ class Database:
     def set_subscription_enabled(self, enabled: bool) -> None:
         self.set_setting("subscription_enabled", "1" if enabled else "0")
 
+
+
+    def seed_movies(self, movies: Iterable[SeedMovie]) -> int:
+        """Добавляет фильмы из сида, только если кода ещё нет. Ничего не перезаписывает и не удаляет."""
+        added = 0
+        for movie in movies:
+            if self.code_exists(movie.code):
+                continue
+            self.add_movie(
+                code=movie.code,
+                title=movie.title,
+                description=movie.description,
+                year=movie.year,
+                genre=movie.genre,
+                poster_file_id=movie.poster_file_id,
+            )
+            added += 1
+            logger.info("Добавлен фильм из сида: код %s — %s", movie.code, movie.title)
+        return added
 
     def seed_required_channels(self, channels: Iterable[RequiredChannel]) -> int:
         """Добавляет каналы из REQUIRED_CHANNELS, только если chat_id ещё нет в базе."""

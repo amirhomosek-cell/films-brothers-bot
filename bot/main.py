@@ -15,6 +15,7 @@ from bot.config import Config, load_config
 from bot.db import Database
 from bot.handlers import admin_manage, admin_movies, admin_tools, common, user
 from bot.health import start_health_server
+from bot.seed import DEFAULT_MOVIES_SEED_PATH, load_movies_seed
 from bot.middlewares.access import AccessMiddleware
 from bot.middlewares.user import UserMiddleware
 
@@ -56,6 +57,15 @@ async def run(config: Config) -> None:
             "REQUIRED_CHANNELS: добавлено %s, всего задано %s, подписка включена",
             added,
             len(config.required_channels),
+        )
+    seed_movies = load_movies_seed(DEFAULT_MOVIES_SEED_PATH)
+    if seed_movies:
+        added_movies = db.seed_movies(seed_movies)
+        logger.info(
+            "MOVIES_SEED: добавлено %s, в файле %s (коды: %s)",
+            added_movies,
+            len(seed_movies),
+            ", ".join(str(m.code) for m in seed_movies),
         )
     bot = Bot(
         token=config.bot_token,
