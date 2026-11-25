@@ -22,3 +22,7 @@ class Broadcast(StatesGroup):
 
 class AddChannel(StatesGroup):
     waiting_channel = State()
+
+
+class SetAdmin(StatesGroup):
+    waiting_user = State()

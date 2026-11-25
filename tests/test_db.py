@@ -18,11 +18,11 @@ from bot.db import Database, AdminInfo
 class DatabaseTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)  # последним: на Windows открытую базу не удалить
         self.db = Database(Path(self.tmp.name) / "test.db")
 
     def tearDown(self) -> None:
         self.db.close()
-        self.tmp.cleanup()
 
     def _add(self, code: int = 1, title: str = "Matrix", **kwargs):
         if "file_id" in kwargs:
@@ -209,11 +209,11 @@ class DatabaseTests(unittest.TestCase):
 class AdminDatabaseTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)  # последним: на Windows открытую базу не удалить
         self.db = Database(Path(self.tmp.name) / "test.db")
 
     def tearDown(self) -> None:
         self.db.close()
-        self.tmp.cleanup()
 
     def test_add_list_remove_admin(self) -> None:
         self.db.upsert_user(100, "ali", "Ali")
@@ -294,10 +294,8 @@ class AdminDatabaseTests(unittest.TestCase):
 class MovieSchemaTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)  # последним: на Windows открытую базу не удалить
         self.path = Path(self.tmp.name) / "test.db"
-
-    def tearDown(self) -> None:
-        self.tmp.cleanup()
 
     def test_add_movie_without_poster(self) -> None:
         db = Database(self.path)

@@ -2,24 +2,34 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import re
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
-from aiogram.filters import Command, CommandObject
+from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, MessageOriginHiddenUser, MessageOriginUser, User
 
-from bot.access import display_name, is_admin as user_is_admin, is_owner as user_is_owner
+from bot.access import (
+    display_name,
+    is_admin as user_is_admin,
+    is_env_owner,
+    is_owner as user_is_owner,
+)
 from bot.config import Config
 from bot.db import Database
 from bot.keyboards import (
+    admin_card_keyboard,
     admin_panel_keyboard,
-    back_to_panel_keyboard,
+    admins_back_keyboard,
+    admins_menu_keyboard,
     confirm_add_admin_keyboard,
     confirm_del_admin_keyboard,
+    confirm_set_role_keyboard,
 )
+from bot.states import SetAdmin
 from bot.texts import t
 
 logger = logging.getLogger(__name__)
@@ -36,16 +46,20 @@ def _profile_name(db: Database, user_id: int, username: str | None = None, first
     return display_name(user_id=user_id, first_name=first_name, username=username)
 
 
-def admins_text(db: Database, config: Config, lang: str) -> str:
+def _esc(text: str) -> str:
+    return html.escape(text, quote=False)
+
+
+def admins_text(db: Database, config: Config, lang: str, *, owner: bool = False) -> str:
     items = db.list_admins(config.admin_ids)
     lines = [t(lang, "admins_title"), ""]
     extras = 0
     for admin in items:
-        name = display_name(
+        name = _esc(display_name(
             user_id=admin.user_id,
             first_name=admin.first_name,
             username=admin.username,
-        )
+        ))
         key = "admins_owner_line" if admin.is_owner else "admins_line"
         if not admin.is_owner:
             extras += 1
@@ -53,7 +67,33 @@ def admins_text(db: Database, config: Config, lang: str) -> str:
     if extras == 0 and any(a.is_owner for a in items):
         lines.append("")
         lines.append(t(lang, "admins_empty"))
+    if owner and any(not a.env_owner for a in items):
+        lines.append("")
+        lines.append(t(lang, "admins_manage_hint"))
     return "\n".join(lines)
+
+
+def admins_markup(db: Database, config: Config, lang: str, owner: bool):
+    return admins_menu_keyboard(lang, db.list_admins(config.admin_ids), owner=owner)
+
+
+def plan_role_change(config: Config, db: Database, user_id: int, role: str) -> str:
+    """Что сделать, если главный админ выбрал пользователя для роли role ('admin'/'owner').
+
+    Возвращает ключ texts: owner_env_protected, addadmin_already_owner, addadmin_already
+    (менять нечего) либо setowner_confirm, demote_confirm, addadmin_confirm (спросить).
+    """
+    if is_env_owner(config, user_id):
+        return "owner_env_protected"
+    db_owner = db.is_db_owner(user_id)
+    db_admin = db.is_db_admin(user_id)
+    if role == "owner":
+        return "addadmin_already_owner" if db_owner else "setowner_confirm"
+    if db_owner:
+        return "demote_confirm"
+    if db_admin:
+        return "addadmin_already"
+    return "addadmin_confirm"
 
 
 def panel_text(lang: str) -> str:
@@ -143,28 +183,38 @@ async def cb_panel_home(callback: CallbackQuery, is_admin: bool, lang: str) -> N
 
 
 @router.message(Command("admins"))
-async def cmd_admins(message: Message, is_admin: bool, db: Database, config: Config, lang: str) -> None:
+async def cmd_admins(
+    message: Message, is_admin: bool, is_owner: bool, db: Database, config: Config, lang: str
+) -> None:
     if not is_admin:
         await message.answer(t(lang, "admin_only"))
         return
     await message.answer(
-        admins_text(db, config, lang),
-        reply_markup=back_to_panel_keyboard(lang),
+        admins_text(db, config, lang, owner=is_owner),
+        reply_markup=admins_markup(db, config, lang, is_owner),
     )
 
 
 @router.callback_query(F.data == "panel:admins")
 async def cb_panel_admins(
-    callback: CallbackQuery, is_admin: bool, db: Database, config: Config, lang: str
+    callback: CallbackQuery,
+    is_admin: bool,
+    is_owner: bool,
+    db: Database,
+    config: Config,
+    lang: str,
+    state: FSMContext | None = None,
 ) -> None:
     if not is_admin:
         await callback.answer(t(lang, "admin_only"), show_alert=True)
         return
+    if state is not None and await state.get_state() == SetAdmin.waiting_user.state:
+        await state.clear()
     await callback.answer()
     if callback.message:
         await callback.message.edit_text(
-            admins_text(db, config, lang),
-            reply_markup=back_to_panel_keyboard(lang),
+            admins_text(db, config, lang, owner=is_owner),
+            reply_markup=admins_markup(db, config, lang, is_owner),
         )
 
 
@@ -193,7 +243,7 @@ async def cmd_addadmin(
         return
     user_id, username, first_name = target
     name = _profile_name(db, user_id, username, first_name)
-    if user_is_owner(config, user_id):
+    if user_is_owner(config, db, user_id):
         await message.answer(t(lang, "addadmin_already_owner"))
         return
     if user_is_admin(config, db, user_id):
@@ -228,7 +278,7 @@ async def cb_addadmin_yes(
     except ValueError:
         await callback.answer()
         return
-    if user_is_owner(config, user_id):
+    if user_is_owner(config, db, user_id):
         await callback.answer()
         if callback.message:
             await callback.message.edit_text(t(lang, "addadmin_already_owner"))
@@ -292,7 +342,7 @@ async def cmd_deladmin(
         return
     user_id, username, first_name = target
     name = _profile_name(db, user_id, username, first_name)
-    if user_is_owner(config, user_id):
+    if is_env_owner(config, user_id):
         await message.answer(t(lang, "deladmin_owner"))
         return
     if not db.is_db_admin(user_id):
@@ -327,7 +377,7 @@ async def cb_deladmin_yes(
     except ValueError:
         await callback.answer()
         return
-    if user_is_owner(config, user_id):
+    if is_env_owner(config, user_id):
         await callback.answer()
         if callback.message:
             await callback.message.edit_text(t(lang, "deladmin_owner"))
@@ -335,6 +385,207 @@ async def cb_deladmin_yes(
     name = _profile_name(db, user_id)
     removed = db.remove_db_admin(user_id)
     await callback.answer()
-    text = t(lang, "deladmin_done", name=name) if removed else t(lang, "deladmin_not_found")
+    text = t(lang, "deladmin_done", name=_esc(name)) if removed else t(lang, "deladmin_not_found")
     if callback.message:
-        await callback.message.edit_text(text)
+        await callback.message.edit_text(text, reply_markup=admins_back_keyboard(lang))
+
+
+# --- кнопки «Сделать админом» / «Сделать главным админом» ---
+
+_ROLES = ("admin", "owner")
+
+
+async def _deny(callback: CallbackQuery, is_admin: bool, is_owner: bool, lang: str) -> bool:
+    """True, если доступ запрещён (ответ уже отправлен)."""
+    if not is_admin:
+        await callback.answer(t(lang, "admin_only"), show_alert=True)
+        return True
+    if not is_owner:
+        await callback.answer(t(lang, "owner_only"), show_alert=True)
+        return True
+    return False
+
+
+def _parse_tail_id(data: str | None) -> int | None:
+    try:
+        value = int((data or "").rsplit(":", 1)[1])
+    except (IndexError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+@router.callback_query(F.data.in_({"adm:new:admin", "adm:new:owner"}))
+async def cb_admin_new(
+    callback: CallbackQuery, state: FSMContext, is_admin: bool, is_owner: bool, lang: str
+) -> None:
+    if await _deny(callback, is_admin, is_owner, lang):
+        return
+    role = (callback.data or "").rsplit(":", 1)[1]
+    await state.set_state(SetAdmin.waiting_user)
+    await state.update_data(role=role)
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer(t(lang, f"setadmin_ask_{role}"))
+
+
+@router.message(StateFilter(SetAdmin.waiting_user), ~F.text.startswith("/"))
+async def setadmin_got_user(
+    message: Message,
+    state: FSMContext,
+    is_admin: bool,
+    is_owner: bool,
+    db: Database,
+    config: Config,
+    lang: str,
+) -> None:
+    if not is_admin or not is_owner:
+        await state.clear()
+        await message.answer(t(lang, "owner_only" if is_admin else "admin_only"))
+        return
+    data = await state.get_data()
+    role = data.get("role") if data.get("role") in _ROLES else "admin"
+    target = resolve_target(message, message.text or message.caption, db)
+    if isinstance(target, str):
+        key = f"setadmin_ask_{role}" if target == "addadmin_usage" else target
+        extra = {}
+        if key == "addadmin_username_not_found":
+            extra["username"] = (message.text or "").lstrip("@").strip()
+        await message.answer(t(lang, key, **extra))
+        return  # остаёмся в ожидании, можно прислать ещё раз
+    user_id, username, first_name = target
+    name = _esc(_profile_name(db, user_id, username, first_name))
+    plan = plan_role_change(config, db, user_id, role)
+    await state.clear()
+    if plan == "setowner_confirm":
+        markup = confirm_set_role_keyboard(lang, user_id, "owner", "btn_yes_setowner")
+    elif plan == "demote_confirm":
+        markup = confirm_set_role_keyboard(lang, user_id, "admin", "btn_yes_demote")
+    elif plan == "addadmin_confirm":
+        markup = confirm_set_role_keyboard(lang, user_id, "admin", "btn_yes_addadmin")
+    else:
+        await message.answer(t(lang, plan), reply_markup=admins_back_keyboard(lang))
+        return
+    await message.answer(t(lang, plan, name=name, user_id=user_id), reply_markup=markup)
+
+
+@router.callback_query(F.data.startswith("adm:card:"))
+async def cb_admin_card(
+    callback: CallbackQuery,
+    is_admin: bool,
+    is_owner: bool,
+    db: Database,
+    config: Config,
+    lang: str,
+) -> None:
+    if await _deny(callback, is_admin, is_owner, lang):
+        return
+    user_id = _parse_tail_id(callback.data)
+    if user_id is None:
+        await callback.answer()
+        return
+    if is_env_owner(config, user_id):
+        await callback.answer(t(lang, "owner_env_protected"), show_alert=True)
+        return
+    if not db.is_db_admin(user_id):
+        await callback.answer(t(lang, "deladmin_not_found"), show_alert=True)
+        return
+    await callback.answer()
+    owner = db.is_db_owner(user_id)
+    text = t(
+        lang,
+        "admin_card",
+        mark="⭐" if owner else "👤",
+        name=_esc(_profile_name(db, user_id)),
+        user_id=user_id,
+        role=t(lang, "role_owner" if owner else "role_admin"),
+    )
+    if callback.message:
+        await callback.message.edit_text(
+            text, reply_markup=admin_card_keyboard(lang, user_id, is_owner=owner)
+        )
+
+
+@router.callback_query(F.data.startswith("adm:set:"))
+async def cb_admin_set_role(
+    callback: CallbackQuery,
+    is_admin: bool,
+    is_owner: bool,
+    db: Database,
+    config: Config,
+    lang: str,
+) -> None:
+    if await _deny(callback, is_admin, is_owner, lang):
+        return
+    parts = (callback.data or "").split(":")
+    user_id = _parse_tail_id(callback.data)
+    if len(parts) != 4 or parts[2] not in _ROLES or user_id is None:
+        await callback.answer()
+        return
+    role = parts[2]
+    back = admins_back_keyboard(lang)
+    if is_env_owner(config, user_id):
+        await callback.answer()
+        if callback.message:
+            await callback.message.edit_text(t(lang, "owner_env_protected"), reply_markup=back)
+        return
+    was_admin = db.is_db_admin(user_id)
+    row = db.get_user(user_id)
+    username = row["username"] if row else None
+    added_by = callback.from_user.id if callback.from_user else None
+    changed = db.set_admin_role(
+        user_id, owner=(role == "owner"), added_by=added_by, username=username
+    )
+    name = _esc(_profile_name(db, user_id))
+    if not changed:
+        key = "addadmin_already_owner" if role == "owner" else "addadmin_already"
+        await callback.answer()
+        if callback.message:
+            await callback.message.edit_text(t(lang, key), reply_markup=back)
+        return
+    if role == "owner":
+        text = t(lang, "setowner_done", name=name)
+        notify_key = "setowner_notify"
+    elif was_admin:
+        text = t(lang, "demote_done", name=name)
+        notify_key = None
+    else:
+        text = t(lang, "addadmin_done", name=name)
+        notify_key = "addadmin_notify"
+    if notify_key:
+        try:
+            await callback.bot.send_message(user_id, t(db.get_language(user_id), notify_key))
+        except (TelegramForbiddenError, TelegramAPIError) as exc:
+            logger.info("Could not notify admin %s: %s", user_id, exc)
+            text += "\n\n" + t(lang, "addadmin_notify_fail")
+    await callback.answer()
+    if callback.message:
+        await callback.message.edit_text(text, reply_markup=back)
+
+
+@router.callback_query(F.data.startswith("adm:del:"))
+async def cb_admin_del(
+    callback: CallbackQuery,
+    is_admin: bool,
+    is_owner: bool,
+    db: Database,
+    config: Config,
+    lang: str,
+) -> None:
+    if await _deny(callback, is_admin, is_owner, lang):
+        return
+    user_id = _parse_tail_id(callback.data)
+    if user_id is None:
+        await callback.answer()
+        return
+    if is_env_owner(config, user_id):
+        await callback.answer(t(lang, "owner_env_protected"), show_alert=True)
+        return
+    if not db.is_db_admin(user_id):
+        await callback.answer(t(lang, "deladmin_not_found"), show_alert=True)
+        return
+    await callback.answer()
+    if callback.message:
+        await callback.message.edit_text(
+            t(lang, "deladmin_confirm", name=_esc(_profile_name(db, user_id)), user_id=user_id),
+            reply_markup=confirm_del_admin_keyboard(lang, user_id),
+        )

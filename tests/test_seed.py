@@ -86,11 +86,11 @@ class LoadMoviesSeedTests(unittest.TestCase):
 class SeedMoviesDatabaseTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)  # последним: на Windows открытую базу не удалить
         self.db = Database(Path(self.tmp.name) / "test.db")
 
     def tearDown(self) -> None:
         self.db.close()
-        self.tmp.cleanup()
 
     def test_inserts_only_missing_codes_and_does_not_overwrite(self) -> None:
         self.db.add_movie(code=1, title="OLD TITLE", year=1900, genre="old")

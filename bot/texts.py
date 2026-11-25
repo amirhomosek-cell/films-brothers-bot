@@ -191,6 +191,49 @@ TEXTS: dict[str, dict[str, str]] = {
         "deladmin_owner": "Главного администратора (из ADMIN_IDS) удалить нельзя.",
         "btn_yes_addadmin": "Да, добавить",
         "btn_yes_deladmin": "Да, снять права",
+        "btn_make_admin": "➕ Сделать админом",
+        "btn_make_owner": "⭐ Сделать главным админом",
+        "btn_promote_owner": "⭐ Сделать главным",
+        "btn_demote_owner": "⬇️ Сделать обычным админом",
+        "btn_remove_admin": "❌ Убрать из админов",
+        "btn_admins_back": "⬅️ К списку админов",
+        "btn_yes_setowner": "Да, сделать главным",
+        "btn_yes_demote": "Да, сделать обычным",
+        "admins_manage_hint": "Нажмите на админа ниже, чтобы изменить его права.",
+        "setadmin_ask_admin": (
+            "➕ <b>Кого сделать админом?</b>\n\n"
+            "Перешлите сюда любое его сообщение, отправьте числовой ID "
+            "или @username (если он уже нажимал /start).\n\n"
+            "Отмена — /cancel"
+        ),
+        "setadmin_ask_owner": (
+            "⭐ <b>Кого сделать главным админом?</b>\n\n"
+            "Главный админ сможет сам назначать и снимать админов.\n"
+            "Перешлите сюда любое его сообщение, отправьте числовой ID "
+            "или @username (если он уже нажимал /start).\n\n"
+            "Отмена — /cancel"
+        ),
+        "setowner_confirm": (
+            "Сделать главным администратором?\n\n{name}\nID: <code>{user_id}</code>\n\n"
+            "Он сможет назначать и снимать админов."
+        ),
+        "demote_confirm": (
+            "{name} (<code>{user_id}</code>) сейчас главный администратор. "
+            "Сделать его обычным администратором?"
+        ),
+        "setowner_done": "⭐ {name} теперь главный администратор.",
+        "demote_done": "{name} теперь обычный администратор.",
+        "setowner_notify": (
+            "Вас назначили главным администратором этого бота: "
+            "теперь вы можете назначать и снимать админов. Откройте /admin."
+        ),
+        "owner_env_protected": (
+            "Этот главный администратор прописан в настройках бота (ADMIN_IDS), "
+            "его нельзя понизить или удалить."
+        ),
+        "admin_card": "{mark} <b>{name}</b>\nID: <code>{user_id}</code>\nРоль: {role}",
+        "role_owner": "главный администратор",
+        "role_admin": "администратор",
         "btn_admin_panel": "⚙️ Админ-панель",
         "admin_panel_title": "⚙️ <b>Админ-панель</b>\n\nВыберите раздел:",
         "btn_panel_list": "📋 Фильмы",
@@ -377,6 +420,49 @@ TEXTS: dict[str, dict[str, str]] = {
         "deladmin_owner": "Asosiy administratorni (ADMIN_IDS dagi) o'chirib bo'lmaydi.",
         "btn_yes_addadmin": "Ha, qo'shish",
         "btn_yes_deladmin": "Ha, huquqni olish",
+        "btn_make_admin": "➕ Admin qilish",
+        "btn_make_owner": "⭐ Asosiy admin qilish",
+        "btn_promote_owner": "⭐ Asosiy qilish",
+        "btn_demote_owner": "⬇️ Oddiy admin qilish",
+        "btn_remove_admin": "❌ Adminlikdan olish",
+        "btn_admins_back": "⬅️ Adminlar ro'yxatiga",
+        "btn_yes_setowner": "Ha, asosiy qilish",
+        "btn_yes_demote": "Ha, oddiy qilish",
+        "admins_manage_hint": "Huquqlarini o'zgartirish uchun quyidagi adminni bosing.",
+        "setadmin_ask_admin": (
+            "➕ <b>Kimni admin qilamiz?</b>\n\n"
+            "Uning istalgan xabarini shu yerga forward qiling, raqamli ID "
+            "yoki @username yuboring (agar u allaqachon /start bosgan bo'lsa).\n\n"
+            "Bekor qilish — /cancel"
+        ),
+        "setadmin_ask_owner": (
+            "⭐ <b>Kimni asosiy admin qilamiz?</b>\n\n"
+            "Asosiy admin o'zi adminlarni tayinlashi va olib tashlashi mumkin.\n"
+            "Uning istalgan xabarini shu yerga forward qiling, raqamli ID "
+            "yoki @username yuboring (agar u allaqachon /start bosgan bo'lsa).\n\n"
+            "Bekor qilish — /cancel"
+        ),
+        "setowner_confirm": (
+            "Asosiy administrator qilinsinmi?\n\n{name}\nID: <code>{user_id}</code>\n\n"
+            "U adminlarni tayinlashi va olib tashlashi mumkin bo'ladi."
+        ),
+        "demote_confirm": (
+            "{name} (<code>{user_id}</code>) hozir asosiy administrator. "
+            "Uni oddiy administrator qilinsinmi?"
+        ),
+        "setowner_done": "⭐ {name} endi asosiy administrator.",
+        "demote_done": "{name} endi oddiy administrator.",
+        "setowner_notify": (
+            "Siz ushbu botning asosiy administratori etib tayinlandingiz: "
+            "endi adminlarni tayinlashingiz va olib tashlashingiz mumkin. /admin ni oching."
+        ),
+        "owner_env_protected": (
+            "Bu asosiy administrator bot sozlamalarida (ADMIN_IDS) yozilgan, "
+            "uni pasaytirib yoki o'chirib bo'lmaydi."
+        ),
+        "admin_card": "{mark} <b>{name}</b>\nID: <code>{user_id}</code>\nRoli: {role}",
+        "role_owner": "asosiy administrator",
+        "role_admin": "administrator",
         "btn_admin_panel": "⚙️ Admin-panel",
         "admin_panel_title": "⚙️ <b>Admin-panel</b>\n\nBo'limni tanlang:",
         "btn_panel_list": "📋 Filmlar",

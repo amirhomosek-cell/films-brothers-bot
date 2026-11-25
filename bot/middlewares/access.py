@@ -25,6 +25,6 @@ class AccessMiddleware(BaseMiddleware):
         if isinstance(event, (Message, CallbackQuery)):
             user = event.from_user
         user_id = user.id if user else None
-        data["is_owner"] = is_owner(config, user_id)
+        data["is_owner"] = is_owner(config, db, user_id)
         data["is_admin"] = is_admin(config, db, user_id)
         return await handler(event, data)

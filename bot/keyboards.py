@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from bot.db import Channel
+from bot.access import display_name
+from bot.db import AdminInfo, Channel
 from bot.texts import t
 
 
@@ -210,3 +211,68 @@ def poster_keyboard(lang: str, *, can_clear: bool = False, skip_callback: str = 
         )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
+
+
+def admins_menu_keyboard(lang: str, admins: list[AdminInfo], *, owner: bool) -> InlineKeyboardMarkup:
+    """Раздел «Админы». Кнопки управления видят только главные админы."""
+    rows: list[list[InlineKeyboardButton]] = []
+    if owner:
+        rows.append(
+            [InlineKeyboardButton(text=t(lang, "btn_make_admin"), callback_data="adm:new:admin")]
+        )
+        rows.append(
+            [InlineKeyboardButton(text=t(lang, "btn_make_owner"), callback_data="adm:new:owner")]
+        )
+        for admin in admins:
+            if admin.env_owner:
+                continue  # главных из ADMIN_IDS менять нельзя
+            mark = "⭐" if admin.is_owner else "👤"
+            name = display_name(
+                user_id=admin.user_id, first_name=admin.first_name, username=admin.username
+            )
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"{mark} {name}"[:60],
+                        callback_data=f"adm:card:{admin.user_id}",
+                    )
+                ]
+            )
+    rows.append([InlineKeyboardButton(text=t(lang, "btn_panel_back"), callback_data="panel:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_card_keyboard(lang: str, user_id: int, *, is_owner: bool) -> InlineKeyboardMarkup:
+    role_btn = (
+        InlineKeyboardButton(text=t(lang, "btn_demote_owner"), callback_data=f"adm:set:admin:{user_id}")
+        if is_owner
+        else InlineKeyboardButton(text=t(lang, "btn_promote_owner"), callback_data=f"adm:set:owner:{user_id}")
+    )
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [role_btn],
+            [InlineKeyboardButton(text=t(lang, "btn_remove_admin"), callback_data=f"adm:del:{user_id}")],
+            [InlineKeyboardButton(text=t(lang, "btn_admins_back"), callback_data="panel:admins")],
+        ]
+    )
+
+
+def confirm_set_role_keyboard(lang: str, user_id: int, role: str, yes_key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t(lang, yes_key), callback_data=f"adm:set:{role}:{user_id}"
+                ),
+                InlineKeyboardButton(text=t(lang, "btn_cancel"), callback_data="cancel"),
+            ]
+        ]
+    )
+
+
+def admins_back_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_admins_back"), callback_data="panel:admins")]
+        ]
+    )

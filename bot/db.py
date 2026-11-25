@@ -80,6 +80,8 @@ class AdminInfo:
     first_name: str | None
     added_by: int | None
     added_at: str | None
+    # True, если главный админ прописан в ADMIN_IDS (его нельзя понизить или удалить).
+    env_owner: bool = False
 
 
 class Database:
@@ -153,7 +155,8 @@ class Database:
                 user_id INTEGER PRIMARY KEY,
                 added_by INTEGER,
                 added_at TEXT NOT NULL,
-                username TEXT
+                username TEXT,
+                is_owner INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE INDEX IF NOT EXISTS idx_movies_views ON movies(views DESC);
@@ -165,7 +168,15 @@ class Database:
             "INSERT OR IGNORE INTO settings(key, value) VALUES('subscription_enabled', '1')"
         )
         self._migrate_movies_table()
+        self._migrate_admins_table()
 
+    def _migrate_admins_table(self) -> None:
+        """Добавляет колонку is_owner (главный админ из бота), сохраняя старых админов."""
+        cols = {row["name"] for row in self._conn.execute("PRAGMA table_info(admins)")}
+        if "is_owner" not in cols:
+            self._conn.execute(
+                "ALTER TABLE admins ADD COLUMN is_owner INTEGER NOT NULL DEFAULT 0"
+            )
 
     def _migrate_movies_table(self) -> None:
         """Пересобирает movies, если схема старая (file_id NOT NULL, нет poster_file_id).
@@ -599,6 +610,7 @@ class Database:
         user_id: int,
         added_by: int | None = None,
         username: str | None = None,
+        is_owner: bool = False,
     ) -> AdminInfo:
         if user_id < 1:
             raise ValueError("user_id must be a positive integer")
@@ -607,10 +619,10 @@ class Database:
             try:
                 self._conn.execute(
                     """
-                    INSERT INTO admins(user_id, added_by, added_at, username)
-                    VALUES(?, ?, ?, ?)
+                    INSERT INTO admins(user_id, added_by, added_at, username, is_owner)
+                    VALUES(?, ?, ?, ?, ?)
                     """,
-                    (user_id, added_by, _now(), username),
+                    (user_id, added_by, _now(), username, 1 if is_owner else 0),
                 )
             except sqlite3.IntegrityError as exc:
                 raise ValueError(f"admin {user_id} already exists") from exc
@@ -621,12 +633,56 @@ class Database:
         user = self.get_user(user_id)
         return AdminInfo(
             user_id=user_id,
-            is_owner=False,
+            is_owner=is_owner,
             username=(user["username"] if user else None) or username,
             first_name=user["first_name"] if user else None,
             added_by=added_by,
             added_at=_now(),
         )
+
+    def is_db_owner(self, user_id: int) -> bool:
+        """Главный админ, назначенный через бота (таблица admins, is_owner = 1)."""
+        row = self.execute(
+            "SELECT 1 FROM admins WHERE user_id = ? AND is_owner = 1", (user_id,)
+        ).fetchone()
+        return row is not None
+
+    def set_admin_role(
+        self,
+        user_id: int,
+        *,
+        owner: bool,
+        added_by: int | None = None,
+        username: str | None = None,
+    ) -> bool:
+        """Делает пользователя админом (owner=False) или главным админом (owner=True).
+
+        Если записи нет — создаёт, если есть — меняет только роль.
+        Возвращает True, если что-то изменилось.
+        """
+        if user_id < 1:
+            raise ValueError("user_id must be a positive integer")
+        username = (username or "").lstrip("@").strip() or None
+        flag = 1 if owner else 0
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT is_owner FROM admins WHERE user_id = ?", (user_id,)
+            ).fetchone()
+            if row is None:
+                self._conn.execute(
+                    """
+                    INSERT INTO admins(user_id, added_by, added_at, username, is_owner)
+                    VALUES(?, ?, ?, ?, ?)
+                    """,
+                    (user_id, added_by, _now(), username, flag),
+                )
+                return True
+            if int(row["is_owner"]) == flag:
+                return False
+            self._conn.execute(
+                "UPDATE admins SET is_owner = ? WHERE user_id = ?", (flag, user_id)
+            )
+            return True
 
     def remove_db_admin(self, user_id: int) -> bool:
         cur = self.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
@@ -644,11 +700,12 @@ class Database:
                 first_name=user["first_name"] if user else None,
                 added_by=None,
                 added_at=None,
+                env_owner=True,
             )
         rows = self.execute(
             """
             SELECT a.user_id, a.added_by, a.added_at, a.username AS snap_username,
-                   u.username, u.first_name
+                   a.is_owner, u.username, u.first_name
             FROM admins a
             LEFT JOIN users u ON u.user_id = a.user_id
             ORDER BY a.added_at
@@ -667,11 +724,12 @@ class Database:
                     first_name=current.first_name or first_name,
                     added_by=row["added_by"],
                     added_at=row["added_at"],
+                    env_owner=True,
                 )
                 continue
             result[uid] = AdminInfo(
                 user_id=uid,
-                is_owner=False,
+                is_owner=bool(row["is_owner"]),
                 username=username,
                 first_name=first_name,
                 added_by=row["added_by"],
